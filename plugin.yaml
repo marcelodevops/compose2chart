@@ -1,0 +1,12 @@
+name: "helm-compose"
+version: "0.1.0"
+usage: "generate a Helm chart from a docker-compose.yml"
+description: |
+  Generates a Helm v3 chart from a Docker Compose file. Useful as a starting
+  point to migrate small Compose services into Kubernetes/Helm.
+command: "helm-compose"
+needsInstall: false
+hooks: []
+
+# Optional: set preferences for Helm
+# (You can edit/extend this file before packaging the plugin.)
