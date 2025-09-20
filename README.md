@@ -63,12 +63,4 @@ helm-compose -f docker-compose.yml -o ./mychart -n mychart
 - Contributions welcome!
 ```
 
----
 
-### Next steps I can do for you (pick any, or I will pick one):
-- Add more robust parsing of `ports` (host:container, ranges)
-- Generate StatefulSets for services with named volumes
-- Add CRD support / k8s Ingress generation
-- Create a GitHub Actions workflow to build and release the plugin
-
-Tell me which of the next steps you'd like and I will implement it directly in the canvas.
