@@ -5,9 +5,17 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+type PortMapping struct {
+	HostIP        string
+	HostPort      int
+	ContainerPort int
+}
 
 // Options controls converter behavior
 type Options struct {
@@ -18,72 +26,114 @@ type Options struct {
 	Version     string
 }
 
-// GenerateChart reads a compose file and writes a Helm chart to OutDir
+func parsePortString(s string) ([]PortMapping, error) {
+	parts := strings.Split(s, ":")
+	switch len(parts) {
+	case 1:
+		// just container port
+		c, err := strconv.Atoi(parts[0])
+		if err != nil {
+			return nil, fmt.Errorf("invalid port: %s", s)
+		}
+		return []PortMapping{{ContainerPort: c}}, nil
+	case 2:
+		// host:container or range
+		host := parts[0]
+		cont := parts[1]
+		if strings.Contains(host, "-") || strings.Contains(cont, "-") {
+			hRange := strings.Split(host, "-")
+			cRange := strings.Split(cont, "-")
+			if len(hRange) != 2 || len(cRange) != 2 {
+				return nil, fmt.Errorf("invalid port range: %s", s)
+			}
+			hStart, _ := strconv.Atoi(hRange[0])
+			hEnd, _ := strconv.Atoi(hRange[1])
+			cStart, _ := strconv.Atoi(cRange[0])
+			cEnd, _ := strconv.Atoi(cRange[1])
+			if (hEnd-hStart) != (cEnd-cStart) {
+				return nil, fmt.Errorf("mismatched port ranges: %s", s)
+			}
+			ports := []PortMapping{}
+			for i := 0; i <= (hEnd - hStart); i++ {
+				ports = append(ports, PortMapping{HostPort: hStart + i, ContainerPort: cStart + i})
+			}
+			return ports, nil
+		}
+		h, err1 := strconv.Atoi(host)
+		c, err2 := strconv.Atoi(cont)
+		if err1 != nil || err2 != nil {
+			return nil, fmt.Errorf("invalid port mapping: %s", s)
+		}
+		return []PortMapping{{HostPort: h, ContainerPort: c}}, nil
+	case 3:
+		// ip:host:container
+		pm := PortMapping{HostIP: parts[0]}
+		h, err1 := strconv.Atoi(parts[1])
+		c, err2 := strconv.Atoi(parts[2])
+		if err1 != nil || err2 != nil {
+			return nil, fmt.Errorf("invalid ip:host:container mapping: %s", s)
+		}
+		pm.HostPort = h
+		pm.ContainerPort = c
+		return []PortMapping{pm}, nil
+	}
+	return nil, fmt.Errorf("unsupported port format: %s", s)
+}
+
+// GenerateChart reads a docker-compose file and writes a Helm chart to OutDir
 func GenerateChart(opts Options) error {
-	b, err := ioutil.ReadFile(opts.ComposePath)
+	data, err := ioutil.ReadFile(opts.ComposeFile)
 	if err != nil {
-		return fmt.Errorf("read compose file: %w", err)
+		return fmt.Errorf("failed to read compose file: %w", err)
 	}
 
 	var compose map[string]interface{}
-	if err := yaml.Unmarshal(b, &compose); err != nil {
-		return fmt.Errorf("parse compose yaml: %w", err)
+	if err := yaml.Unmarshal(data, &compose); err != nil {
+		return fmt.Errorf("failed to parse compose file: %w", err)
 	}
 
-	servicesRaw, ok := compose["services"]
+	services, ok := compose["services"].(map[string]interface{})
 	if !ok {
-		return fmt.Errorf("compose file contains no 'services' key")
+		return fmt.Errorf("compose file missing services")
 	}
 
-	servicesMap, ok := servicesRaw.(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("unexpected type for 'services' in compose file")
+	if err := os.MkdirAll(filepath.Join(opts.OutDir, "templates"), 0755); err != nil {
+		return err
 	}
 
-	if err := os.MkdirAll(opts.OutDir, 0755); err != nil {
-		return fmt.Errorf("create out dir: %w", err)
-	}
+	for name, svc := range services {
+		svcDef, _ := svc.(map[string]interface{})
 
-	templatesDir := filepath.Join(opts.OutDir, "templates")
-	os.MkdirAll(templatesDir, 0755)
-
-	chartYaml := fmt.Sprintf("apiVersion: v2
-name: %s
-version: %s
-appVersion: \"%s\"
-", opts.ChartName, opts.Version, opts.AppVersion)
-	if err := ioutil.WriteFile(filepath.Join(opts.OutDir, "Chart.yaml"), []byte(chartYaml), 0644); err != nil {
-		return fmt.Errorf("write Chart.yaml: %w", err)
-	}
-
-	values := map[string]interface{}{"services": map[string]interface{}{}}
-
-	for svcName, svcDefRaw := range servicesMap {
-		svcDef, _ := svcDefRaw.(map[string]interface{})
-		safeName := sanitizeName(svcName)
-		svcValues := map[string]interface{}{}
-		if img, ok := svcDef["image"].(string); ok {
-			svcValues["image"] = img
+		image := ""
+		if v, ok := svcDef["image"].(string); ok {
+			image = v
 		}
-		if env, ok := svcDef["environment"]; ok {
-			svcValues["environment"] = env
-		}
-		if ports, ok := svcDef["ports"]; ok {
-			svcValues["ports"] = ports
-		}
-		// default replica
-		svcValues["replicaCount"] = 1
-		values["services"].(map[string]interface{})[safeName] = svcValues
 
-		// write minimal templates using placeholders
-		deployYaml := fmt.Sprintf("apiVersion: apps/v1
+		ports := []PortMapping{}
+		if rawPorts, ok := svcDef["ports"].([]interface{}); ok {
+			for _, p := range rawPorts {
+				if ps, ok := p.(string); ok {
+					if pms, err := parsePortString(ps); err == nil {
+						ports = append(ports, pms...)
+					} else {
+						fmt.Fprintf(os.Stderr, "warning: %v\\n", err)
+					}
+				}
+			}
+		}
+
+		svcValues := map[string]interface{}{
+			"name":   name,
+			"image":  image,
+			"ports":  ports,
+		}
+
+		// Render Deployment YAML
+		deployment := fmt.Sprintf(`apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: %s-%s
-  labels:
-    app: %s
+  name: %s
 spec:
-  replicas: {{ .Values.services.%s.replicaCount }}
   selector:
     matchLabels:
       app: %s
@@ -93,40 +143,59 @@ spec:
         app: %s
     spec:
       containers:
-        - name: %s
-          image: {{ .Values.services.%s.image }}
-", opts.ChartName, safeName, safeName, safeName, safeName, safeName, safeName, safeName)
-		ioutil.WriteFile(filepath.Join(templatesDir, safeName+"-deployment.yaml"), []byte(deployYaml), 0644)
+      - name: %s
+        image: %s
+        ports:
+%s
+`,
+			name, name, name, name, image, renderContainerPorts(ports))
 
-		if _, ok := svcValues["ports"]; ok {
-			serviceYaml := fmt.Sprintf("apiVersion: v1
+		if err := ioutil.WriteFile(filepath.Join(opts.OutDir, "templates", name+"-deployment.yaml"), []byte(deployment), 0644); err != nil {
+			return err
+		}
+
+		// Render Service YAML if ports exist
+		if len(ports) > 0 {
+			service := fmt.Sprintf(`apiVersion: v1
 kind: Service
 metadata:
-  name: %s-%s
-  labels:
-    app: %s
+  name: %s
 spec:
   selector:
     app: %s
   ports:
-  - port: 80
-    targetPort: 80
-", opts.ChartName, safeName, safeName, safeName)
-			ioutil.WriteFile(filepath.Join(templatesDir, safeName+"-service.yaml"), []byte(serviceYaml), 0644)
+%s
+`,
+				name, name, renderServicePorts(ports))
+
+			if err := ioutil.WriteFile(filepath.Join(opts.OutDir, "templates", name+"-service.yaml"), []byte(service), 0644); err != nil {
+				return err
+			}
 		}
 	}
 
-	valBytes, _ := yaml.Marshal(values)
-	ioutil.WriteFile(filepath.Join(opts.OutDir, "values.yaml"), valBytes, 0644)
-
-	helpers, _ := ioutil.ReadFile("templates/_helpers.tpl")
-	ioutil.WriteFile(filepath.Join(templatesDir, "_helpers.tpl"), helpers, 0644)
-
-	notes := "Generated by helm-compose-plugin. Review values.yaml and templates before deploying.
-"
-	ioutil.WriteFile(filepath.Join(templatesDir, "NOTES.txt"), []byte(notes), 0644)
-
 	return nil
+}
+
+func renderContainerPorts(ports []PortMapping) string {
+	out := ""
+	for _, pm := range ports {
+		out += fmt.Sprintf("        - containerPort: %d\\n", pm.ContainerPort)
+	}
+	return out
+}
+
+func renderServicePorts(ports []PortMapping) string {
+	out := ""
+	for i, pm := range ports {
+		name := fmt.Sprintf("p%d", i)
+		if pm.HostPort != 0 {
+			out += fmt.Sprintf("  - name: %s\\n    port: %d\\n    targetPort: %d\\n", name, pm.HostPort, pm.ContainerPort)
+		} else {
+			out += fmt.Sprintf("  - name: %s\\n    port: %d\\n    targetPort: %d\\n", name, pm.ContainerPort, pm.ContainerPort)
+		}
+	}
+	return out
 }
 
 func sanitizeName(s string) string {
