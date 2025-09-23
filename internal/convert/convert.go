@@ -2,7 +2,6 @@ package convert
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,6 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
 
 type PortMapping struct {
 	HostIP        string
@@ -26,9 +26,6 @@ type Options struct {
 	AppVersion  string
 	Version     string
 }
-
-
-
 
 // parsePortString handles single ports, ip:host:container, ranges, and protocols like 8080:80/tcp
 func parsePortString(s string) ([]PortMapping, error) {
@@ -94,7 +91,7 @@ func parsePortString(s string) ([]PortMapping, error) {
 
 // GenerateChart reads a docker-compose file and writes a Helm chart to OutDir
 func GenerateChart(opts Options) error {
-	data, err := ioutil.ReadFile(opts.ComposeFile)
+	data, err := os.ReadFile(opts.ComposeFile)
 	if err != nil {
 		return fmt.Errorf("failed to read compose file: %w", err)
 	}
@@ -163,7 +160,7 @@ spec:
 `,
 			name, name, name, name, image, renderContainerPorts(ports))
 
-		if err := ioutil.WriteFile(filepath.Join(opts.OutDir, "templates", name+"-deployment.yaml"), []byte(deployment), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(opts.OutDir, "templates", name+"-deployment.yaml"), []byte(deployment), 0644); err != nil {
 			return err
 		}
 
@@ -181,7 +178,7 @@ spec:
 `,
 				name, name, renderServicePorts(ports))
 
-			if err := ioutil.WriteFile(filepath.Join(opts.OutDir, "templates", name+"-service.yaml"), []byte(service), 0644); err != nil {
+			if err := os.WriteFile(filepath.Join(opts.OutDir, "templates", name+"-service.yaml"), []byte(service), 0644); err != nil {
 				return err
 			}
 		}
@@ -211,6 +208,7 @@ func renderServicePorts(ports []PortMapping) string {
 	return out
 }
 
+
 // sanitizeName ensures Kubernetes resource names are DNS-1123 compliant
 func sanitizeName(name string) string {
 	// Lowercase, replace invalid chars with dash, trim leading/trailing dashes
@@ -223,3 +221,4 @@ func sanitizeName(name string) string {
 	}
 	return name
 }
+
