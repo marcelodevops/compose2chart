@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -15,29 +16,41 @@ type PortMapping struct {
 	HostIP        string
 	HostPort      int
 	ContainerPort int
+	Protocol      string // tcp or udp
 }
 
-// Options controls converter behavior
 type Options struct {
-	ComposePath string
+	ComposeFile string
 	OutDir      string
 	ChartName   string
 	AppVersion  string
 	Version     string
 }
 
+
+
+
+// parsePortString handles single ports, ip:host:container, ranges, and protocols like 8080:80/tcp
 func parsePortString(s string) ([]PortMapping, error) {
+	protocol := "tcp"
+	if strings.Contains(s, "/") {
+		parts := strings.Split(s, "/")
+		s = parts[0]
+		protocol = strings.ToLower(parts[1])
+		if protocol != "tcp" && protocol != "udp" {
+			return nil, fmt.Errorf("unsupported protocol: %s", protocol)
+		}
+	}
+
 	parts := strings.Split(s, ":")
 	switch len(parts) {
 	case 1:
-		// just container port
 		c, err := strconv.Atoi(parts[0])
 		if err != nil {
 			return nil, fmt.Errorf("invalid port: %s", s)
 		}
-		return []PortMapping{{ContainerPort: c}}, nil
+		return []PortMapping{{ContainerPort: c, Protocol: protocol}}, nil
 	case 2:
-		// host:container or range
 		host := parts[0]
 		cont := parts[1]
 		if strings.Contains(host, "-") || strings.Contains(cont, "-") {
@@ -55,7 +68,7 @@ func parsePortString(s string) ([]PortMapping, error) {
 			}
 			ports := []PortMapping{}
 			for i := 0; i <= (hEnd - hStart); i++ {
-				ports = append(ports, PortMapping{HostPort: hStart + i, ContainerPort: cStart + i})
+				ports = append(ports, PortMapping{HostPort: hStart + i, ContainerPort: cStart + i, Protocol: protocol})
 			}
 			return ports, nil
 		}
@@ -64,10 +77,9 @@ func parsePortString(s string) ([]PortMapping, error) {
 		if err1 != nil || err2 != nil {
 			return nil, fmt.Errorf("invalid port mapping: %s", s)
 		}
-		return []PortMapping{{HostPort: h, ContainerPort: c}}, nil
+		return []PortMapping{{HostPort: h, ContainerPort: c, Protocol: protocol}}, nil
 	case 3:
-		// ip:host:container
-		pm := PortMapping{HostIP: parts[0]}
+		pm := PortMapping{HostIP: parts[0], Protocol: protocol}
 		h, err1 := strconv.Atoi(parts[1])
 		c, err2 := strconv.Atoi(parts[2])
 		if err1 != nil || err2 != nil {
@@ -101,7 +113,8 @@ func GenerateChart(opts Options) error {
 		return err
 	}
 
-	for name, svc := range services {
+	for rawName, svc := range services {
+		name := sanitizeName(rawName)
 		svcDef, _ := svc.(map[string]interface{})
 
 		image := ""
@@ -116,7 +129,7 @@ func GenerateChart(opts Options) error {
 					if pms, err := parsePortString(ps); err == nil {
 						ports = append(ports, pms...)
 					} else {
-						fmt.Fprintf(os.Stderr, "warning: %v\\n", err)
+						fmt.Fprintf(os.Stderr, "warning: %v\n", err)
 					}
 				}
 			}
@@ -180,7 +193,7 @@ spec:
 func renderContainerPorts(ports []PortMapping) string {
 	out := ""
 	for _, pm := range ports {
-		out += fmt.Sprintf("        - containerPort: %d\\n", pm.ContainerPort)
+		out += fmt.Sprintf("        - containerPort: %d\n          protocol: %s\n", pm.ContainerPort, strings.ToUpper(pm.Protocol))
 	}
 	return out
 }
@@ -190,25 +203,23 @@ func renderServicePorts(ports []PortMapping) string {
 	for i, pm := range ports {
 		name := fmt.Sprintf("p%d", i)
 		if pm.HostPort != 0 {
-			out += fmt.Sprintf("  - name: %s\\n    port: %d\\n    targetPort: %d\\n", name, pm.HostPort, pm.ContainerPort)
+			out += fmt.Sprintf("  - name: %s\n    port: %d\n    targetPort: %d\n    protocol: %s\n", name, pm.HostPort, pm.ContainerPort, strings.ToUpper(pm.Protocol))
 		} else {
-			out += fmt.Sprintf("  - name: %s\\n    port: %d\\n    targetPort: %d\\n", name, pm.ContainerPort, pm.ContainerPort)
+			out += fmt.Sprintf("  - name: %s\n    port: %d\n    targetPort: %d\n    protocol: %s\n", name, pm.ContainerPort, pm.ContainerPort, strings.ToUpper(pm.Protocol))
 		}
 	}
 	return out
 }
 
-func sanitizeName(s string) string {
-	// basic sanitizer: lowercase and replace non-alnum with '-'
-	out := ""
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			out += string(r)
-		} else if r >= 'A' && r <= 'Z' {
-			out += string(r + ('a' - 'A'))
-		} else {
-			out += "-"
-		}
+// sanitizeName ensures Kubernetes resource names are DNS-1123 compliant
+func sanitizeName(name string) string {
+	// Lowercase, replace invalid chars with dash, trim leading/trailing dashes
+	name = strings.ToLower(name)
+	re := regexp.MustCompile(`[^a-z0-9-]`)
+	name = re.ReplaceAllString(name, "-")
+	name = strings.Trim(name, "-")
+	if len(name) == 0 {
+		name = "app"
 	}
-	return out
+	return name
 }
