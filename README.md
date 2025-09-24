@@ -29,7 +29,7 @@ helm-compose-plugin/
 ---
 
 
-```markdown
+
 # helm-compose-plugin
 
 Generate a Helm chart from a `docker-compose.yml` file.
@@ -61,6 +61,6 @@ helm-compose -f docker-compose.yml -o ./mychart -n mychart
 - This is a best-effort starter — it handles images, simple ports, env, and basic templates.
 - Complex volumes, build contexts, and networks are emitted into `values.yaml` for manual handling.
 - Contributions welcome!
-```
+
 
 
