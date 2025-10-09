@@ -132,11 +132,11 @@ func GenerateChart(opts Options) error {
 			}
 		}
 
-		svcValues := map[string]interface{}{
-			"name":   name,
-			"image":  image,
-			"ports":  ports,
-		}
+		// svcValues := map[string]interface{}{
+		// 	"name":   name,
+		// 	"image":  image,
+		// 	"ports":  ports,
+		// }
 
 		// Render Deployment YAML
 		deployment := fmt.Sprintf(`apiVersion: apps/v1

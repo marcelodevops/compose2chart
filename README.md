@@ -48,7 +48,12 @@ go build -o helm-compose2chart
 mkdir -p ~/.local/share/helm/plugins/helm-compose2chart
 cp helm-compose2chart plugin.yaml ~/.local/share/helm/plugins/helm-compose2chart/
 ```
+  On Mac OS
 
+  ```bash
+mkdir -p ~/Library/helm/plugins/helm-compose2chart
+cp helm-compose2chart plugin.yaml ~/Library/helm/plugins/helm-compose2chart/
+  ```
 3. Now run:
 
 ```bash

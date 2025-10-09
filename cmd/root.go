@@ -43,7 +43,7 @@ func init() {
 
 func run() error {
 	opts := convert.Options{
-		ComposePath: composeFile,
+		ComposeFile: composeFile,
 		OutDir:      outDir,
 		ChartName:   chartName,
 		AppVersion:  appVersion,
