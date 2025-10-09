@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"helm-compose-plugin/internal/convert"
+	"helm-compose2chart-plugin/internal/convert"
 )
 
 var (
@@ -17,7 +17,7 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "helm-compose",
+	Use:   "helm-compose2chart",
 	Short: "Generate a Helm chart from docker-compose.yml",
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := run(); err != nil {

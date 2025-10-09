@@ -1,4 +1,4 @@
-module helm-compose-plugin
+module helm-compose2chart-plugin
 
 go 1.20
 
