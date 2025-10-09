@@ -1,10 +1,10 @@
-name: "helm-compose"
+name: "helm-compose2chart"
 version: "0.1.0"
 usage: "generate a Helm chart from a docker-compose.yml"
 description: |
   Generates a Helm v3 chart from a Docker Compose file. Useful as a starting
   point to migrate small Compose services into Kubernetes/Helm.
-command: "helm-compose"
+command: "helm-compose2chart"
 needsInstall: false
 hooks: []
 

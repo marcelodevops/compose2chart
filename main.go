@@ -1,7 +1,7 @@
 package main
 
 import (
-	"helm-compose-plugin/cmd"
+	"helm-compose2chart-plugin/cmd"
 )
 
 func main() {

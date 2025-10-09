@@ -132,12 +132,6 @@ func GenerateChart(opts Options) error {
 			}
 		}
 
-		// svcValues := map[string]interface{}{
-		// 	"name":   name,
-		// 	"image":  image,
-		// 	"ports":  ports,
-		// }
-
 		// Render Deployment YAML
 		deployment := fmt.Sprintf(`apiVersion: apps/v1
 kind: Deployment
@@ -221,4 +215,3 @@ func sanitizeName(name string) string {
 	}
 	return name
 }
-
